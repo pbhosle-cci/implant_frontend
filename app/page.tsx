@@ -1,66 +1,112 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
 
-export default function Home() {
+import { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
+import SliceViewer from "@/components/SliceViewer";
+import ControlPanel from "@/components/ControlPanel";
+import { useTransform } from "@/hooks/useTransform";
+import type { ScanMeta, MeshData } from "@/types";
+
+const BoneViewer3D = dynamic(() => import("@/components/BoneViewer3D"), { ssr: false });
+
+export default function HomePage() {
+  const [scan,      setScan]      = useState<ScanMeta | null>(null);
+  const [mesh,      setMesh]      = useState<MeshData | null>(null);
+  const [slices,    setSlices]    = useState({ x: 0, y: 0, z: 0 });
+  const [bvtvScore, setBvtvScore] = useState<number | null>(null);
+  const [loading,   setLoading]   = useState<string | null>(null);
+
+  const {
+    voxelPoints, worldPoints, centerVoxel,
+    translate, rotate, jumpToVoxel, initFromMesh,
+  } = useTransform(scan, !!mesh);
+
+  const handleMeshLoaded = useCallback((m: MeshData) => {
+    setMesh(m);
+    initFromMesh(m.voxel_points, m.center_voxel);
+  }, [initFromMesh]);
+
+  const handleGotoCenter = useCallback(() => {
+    if (!centerVoxel) return;
+    setSlices({
+      x: Math.round(centerVoxel[0]),
+      y: Math.round(centerVoxel[1]),
+      z: Math.round(centerVoxel[2]),
+    });
+  }, [centerVoxel]);
+
+  const handleSceneClick = useCallback((worldPos: [number, number, number]) => {
+    jumpToVoxel(worldPos);
+  }, [jumpToVoxel]);
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div style={{ display: "flex", height: "100vh", background: "#111", color: "white", fontFamily: "sans-serif" }}>
+
+      {/* LEFT — 2x2 viewer grid */}
+      <div style={{
+        flex: 4,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateRows: "1fr 1fr",
+        gap: 4,
+        padding: 4,
+        minWidth: 0,
+        minHeight: 0,
+      }}>
+        {scan ? (
+          <>
+            {(["axial", "coronal", "sagittal"] as const).map((plane) => (
+              <div key={plane} style={{ minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}>
+                <SliceViewer
+                  plane={plane}
+                  index={plane === "axial" ? slices.z : plane === "coronal" ? slices.y : slices.x}
+                  scan={scan}
+                  label={plane.charAt(0).toUpperCase() + plane.slice(1)}
+                  meshVoxelPoints={voxelPoints}
+                  onTranslate={translate}
+                  onRotate={rotate}
+                />
+              </div>
+            ))}
+            <div style={{ minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}>
+              <BoneViewer3D
+                mesh={mesh}
+                updatedWorldPoints={worldPoints}
+                onSceneClick={handleSceneClick}
+              />
+            </div>
+          </>
+        ) : (
+          <div style={{ gridColumn: "1/-1", gridRow: "1/-1", display: "flex", alignItems: "center", justifyContent: "center", color: "#444", fontSize: 18 }}>
+            Load a CT scan to begin
+          </div>
+        )}
+      </div>
+
+      {/* RIGHT — controls */}
+      <div style={{ flex: 1, minWidth: 240, borderLeft: "1px solid #333", overflowY: "auto" }}>
+        <ControlPanel
+          scan={scan}
+          slices={slices}
+          bvtvScore={bvtvScore}
+          loading={loading}
+          hasMesh={!!mesh}
+          onScanLoaded={(meta) => {
+            setScan(meta);
+            setSlices({
+              x: Math.floor(meta.dims[0] / 2),
+              y: Math.floor(meta.dims[1] / 2),
+              z: Math.floor(meta.dims[2] / 2),
+            });
+          }}
+          onMeshLoaded={handleMeshLoaded}
+          onSliceChange={(axis, val) => setSlices(prev => ({ ...prev, [axis]: val }))}
+          onBvtvComputed={setBvtvScore}
+          onGotoCenter={handleGotoCenter}
+          setLoading={setLoading}
         />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
+
     </div>
   );
 }
