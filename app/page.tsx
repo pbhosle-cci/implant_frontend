@@ -7,14 +7,19 @@ import ControlPanel from "@/components/ControlPanel";
 import { useTransform } from "@/hooks/useTransform";
 import type { ScanMeta, MeshData } from "@/types";
 
-const BoneViewer3D = dynamic(() => import("@/components/BoneViewer3D"), { ssr: false });
+const BoneViewer3D    = dynamic(() => import("@/components/BoneViewer3D"),    { ssr: false });
+const ImplantViewer3D = dynamic(() => import("@/components/ImplantViewer3D"), { ssr: false });
 
 export default function HomePage() {
-  const [scan,      setScan]      = useState<ScanMeta | null>(null);
-  const [mesh,      setMesh]      = useState<MeshData | null>(null);
-  const [slices,    setSlices]    = useState({ x: 0, y: 0, z: 0 });
-  const [bvtvScore, setBvtvScore] = useState<number | null>(null);
-  const [loading,   setLoading]   = useState<string | null>(null);
+  const [scan,            setScan]            = useState<ScanMeta | null>(null);
+  const [mesh,            setMesh]            = useState<MeshData | null>(null);
+  const [slices,          setSlices]          = useState({ x: 0, y: 0, z: 0 });
+  const [bvtvScore,       setBvtvScore]       = useState<number | null>(null);
+  const [bvtvPerCell,     setBvtvPerCell]     = useState<number[] | null>(null);
+  const [loading,         setLoading]         = useState<string | null>(null);
+  const [boneOpacity,     setBoneOpacity]     = useState(0.4);
+  const [implantOpacity,  setImplantOpacity]  = useState(0.7);
+  const [showBoneOverlay, setShowBoneOverlay] = useState(true);
 
   const {
     voxelPoints, worldPoints, centerVoxel,
@@ -24,6 +29,7 @@ export default function HomePage() {
   const handleMeshLoaded = useCallback((m: MeshData) => {
     setMesh(m);
     initFromMesh(m.voxel_points, m.center_voxel);
+    setBvtvPerCell(null);
   }, [initFromMesh]);
 
   const handleGotoCenter = useCallback(() => {
@@ -63,6 +69,7 @@ export default function HomePage() {
                   scan={scan}
                   label={plane.charAt(0).toUpperCase() + plane.slice(1)}
                   meshVoxelPoints={voxelPoints}
+                  showBoneOverlay={showBoneOverlay}
                   onTranslate={translate}
                   onRotate={rotate}
                 />
@@ -72,6 +79,9 @@ export default function HomePage() {
               <BoneViewer3D
                 mesh={mesh}
                 updatedWorldPoints={worldPoints}
+                bvtvPerCell={bvtvPerCell}
+                boneOpacity={boneOpacity}
+                implantOpacity={implantOpacity}
                 onSceneClick={handleSceneClick}
               />
             </div>
@@ -83,14 +93,23 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* RIGHT — controls */}
-      <div style={{ flex: 1, minWidth: 240, borderLeft: "1px solid #333", overflowY: "auto" }}>
+      {/* RIGHT — implant viewer + controls */}
+      <div style={{ flex: 1, minWidth: 240, borderLeft: "1px solid #333", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <ImplantViewer3D
+          mesh={mesh}
+          updatedWorldPoints={worldPoints}
+          bvtvPerCell={bvtvPerCell}
+        />
         <ControlPanel
           scan={scan}
           slices={slices}
           bvtvScore={bvtvScore}
+          bvtvPerCell={bvtvPerCell}
           loading={loading}
           hasMesh={!!mesh}
+          boneOpacity={boneOpacity}
+          implantOpacity={implantOpacity}
+          showBoneOverlay={showBoneOverlay}
           onScanLoaded={(meta) => {
             setScan(meta);
             setSlices({
@@ -101,8 +120,11 @@ export default function HomePage() {
           }}
           onMeshLoaded={handleMeshLoaded}
           onSliceChange={(axis, val) => setSlices(prev => ({ ...prev, [axis]: val }))}
-          onBvtvComputed={setBvtvScore}
+          onBvtvComputed={(score, perCell) => { setBvtvScore(score); setBvtvPerCell(perCell); }}
           onGotoCenter={handleGotoCenter}
+          onBoneOpacity={setBoneOpacity}
+          onImplantOpacity={setImplantOpacity}
+          onToggleBoneOverlay={() => setShowBoneOverlay(v => !v)}
           setLoading={setLoading}
         />
       </div>

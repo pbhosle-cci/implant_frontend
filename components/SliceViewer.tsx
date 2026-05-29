@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getSlice } from "@/lib/api";
+import { coolwarm } from "@/lib/colormap";
 import type { ScanMeta } from "@/types";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   scan: ScanMeta;
   label: string;
   meshVoxelPoints?: number[][] | null;
+  showBoneOverlay?: boolean;
   onTranslate?: (dx: number, dy: number, dz: number) => void;
   onRotate?: (axis: "x"|"y"|"z", angleDeg: number) => void;
 }
@@ -26,10 +28,12 @@ const ROTATE_SENSITIVITY    = 0.4; // degrees per pixel
 const OVERLAY_DEPTH_RANGE   = 15;  // show mesh points within this many voxels
 
 export default function SliceViewer({
-  plane, index, scan, label, meshVoxelPoints, onTranslate, onRotate,
+  plane, index, scan, label, meshVoxelPoints,
+  showBoneOverlay = true, onTranslate, onRotate,
 }: Props) {
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const rawDataRef = useRef<number[] | null>(null); // store raw pixel values for overlay
   const [error, setError] = useState<string | null>(null);
 
   // Drag state
@@ -48,6 +52,7 @@ export default function SliceViewer({
         canvas.height = slice.height;
 
         const ctx = canvas.getContext("2d")!;
+        rawDataRef.current = slice.data;
         const imgData = ctx.createImageData(slice.width, slice.height);
         for (let i = 0; i < slice.data.length; i++) {
           const g = slice.data[i];
@@ -66,7 +71,7 @@ export default function SliceViewer({
     return () => { cancelled = true; };
   }, [plane, index, scan]);
 
-  // ── Draw mesh overlay ─────────────────────────────────────────────────────
+  // ── Draw overlay (bone highlight + mesh dots) ────────────────────────────
   useEffect(() => {
     const canvas = overlayRef.current;
     if (!canvas || !scan) return;
@@ -81,19 +86,37 @@ export default function SliceViewer({
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, w, h);
 
-    if (!meshVoxelPoints || meshVoxelPoints.length === 0) return;
-
-    ctx.fillStyle = "rgba(0, 255, 255, 0.8)";
-
-    for (const pt of meshVoxelPoints) {
-      if (Math.abs(pt[depth] - index) > OVERLAY_DEPTH_RANGE) continue;
-      const px = pt[cx];
-      const py = pt[cy];
-      ctx.beginPath();
-      ctx.arc(px, py, 1.5, 0, Math.PI * 2);
-      ctx.fill();
+    // Bone color overlay
+    if (showBoneOverlay && rawDataRef.current) {
+      const raw = rawDataRef.current;
+      const imgData = ctx.createImageData(w, h);
+      // Bone threshold: pixels above 160/255 (~600 HU) get a coolwarm tint
+      const BONE_THRESH = 160;
+      for (let i = 0; i < raw.length; i++) {
+        const g = raw[i];
+        if (g > BONE_THRESH) {
+          const t = (g - BONE_THRESH) / (255 - BONE_THRESH);
+          const [r, gg, b] = coolwarm(t);
+          imgData.data[i * 4]     = r;
+          imgData.data[i * 4 + 1] = gg;
+          imgData.data[i * 4 + 2] = b;
+          imgData.data[i * 4 + 3] = 120; // semi-transparent
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
     }
-  }, [meshVoxelPoints, plane, index, scan]);
+
+    // Mesh dots
+    if (meshVoxelPoints && meshVoxelPoints.length > 0) {
+      ctx.fillStyle = "rgba(0, 255, 255, 0.9)";
+      for (const pt of meshVoxelPoints) {
+        if (Math.abs(pt[depth] - index) > OVERLAY_DEPTH_RANGE) continue;
+        ctx.beginPath();
+        ctx.arc(pt[cx], pt[cy], 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }, [meshVoxelPoints, showBoneOverlay, plane, index, scan]);
 
   // ── Mouse drag ────────────────────────────────────────────────────────────
   const onMouseDown = useCallback((e: React.MouseEvent) => {
